@@ -6,16 +6,6 @@
 
 #include <stdio.h>
 #include <string.h> 
-
-
-#if defined _WIN32
-
-// link with Ws2_32.lib
-#pragma comment(lib,"Ws2_32.lib")
-#include <winsock2.h>
-#include <ws2tcpip.h>
-
-#else
 #include <netinet/tcp.h> 
 #include <stdlib.h> 
 #include <errno.h> 
@@ -25,40 +15,47 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <unistd.h>
-#endif
 
 #define SERVER_PORT 5060
-#define SERVER_IP_ADDRESS "172.17.17.23"
+#define SERVER_IP_ADDRESS "127.0.0.1"
 #define NUM_OF_LOOPS 5
 #define NUM_OF_ALGO 2
+#define FILE_BUFF 1024+1
 
 void sendFileThrueTCP(FILE *file, int sock)
 {
-	char data[1024] = { 0 };
-	while (fgets(data, 1024, file) != NULL)
+	int total_sent = 0;
+	char data[FILE_BUFF] = { 0 };
+	while (fgets(data, FILE_BUFF, file) != NULL)
 	{
-		int bytesSent = send(sock, data, strlen(data) + 1, 0);
+		int bytesSent = send(sock, data, strlen(data), 0);
+
+		total_sent += bytesSent;
 
 		if (-1 == bytesSent)
 		{
-			printf("send() failed with error code : %d"
-#if defined _WIN32
-				, WSAGetLastError()
-#else
-				, errno
-#endif
-			);
+			printf("send() failed with error code : %d"	, errno);
 		}
 		else if (0 == bytesSent)
 		{
-			printf("peer has closed the TCP connection prior to send().\n");
+			printf("Peer has closed the TCP connection prior to send().\n");
 		}
 		else if (strlen(data) > bytesSent)
 		{
 			int sent = strlen(data);
-			printf("sent only %d bytes from the required %d.\n", bytesSent, sent);
+			printf("Sent only %d bytes from the required %d.\n", bytesSent, sent);
+		}
+		else
+		{
+			//printf("bytes sent: %d, total sent: %d\n", bytesSent, total_sent);
 		}
 	}
+
+	strcpy(data, "end");
+	int bytesSent = send(sock, data, strlen(data), 0);
+	total_sent += bytesSent;
+	printf("Total sent: %d\n", total_sent);
+	sleep(1);
 }
 
 void changeCC(int sock)
@@ -67,38 +64,27 @@ void changeCC(int sock)
 	socklen_t len = strlen(buf);
 	if (setsockopt(sock, IPPROTO_TCP, TCP_CONGESTION, buf, len) != 0) {
 		perror("setsockopt");
-		return -1;
+		exit(1);
 	}
 }
 
 int main()
 {
-#if defined _WIN32
-	// Windows requires initialization
-	WSADATA wsa;
-	if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0)
-	{
-		printf("Failed. Error Code : %d", WSAGetLastError());
-		return 1;
-	}
-#endif
-
 	int sock = socket(AF_INET, SOCK_STREAM, 0);
 
 	if (sock == -1)
 	{
-		printf("Could not create socket : %d"
-#if defined _WIN32
-			, WSAGetLastError()
-#else
-			, errno
-#endif
-		);
+		printf("Could not create socket : %d", errno);
+		return -1;
+	}
+	else 
+	{
+		printf("Socket %d created\n", sock);
 	}
 
 	// "sockaddr_in" is the "derived" from sockaddr structure
 	// used for IPv4 communication. For IPv6, use sockaddr_in6
-	//
+	
 	struct sockaddr_in serverAddress;
 	memset(&serverAddress, 0, sizeof(serverAddress));
 	serverAddress.sin_family = AF_INET;
@@ -107,35 +93,37 @@ int main()
 	if (rval <= 0)
 	{
 		printf("inet_pton() failed");
+		close(sock);
 		return -1;
 	}
 
 	// Make a connection to the server with socket SendingSocket.
-
+	printf("Trying to connect...\n");
 	if (connect(sock, (struct sockaddr*) & serverAddress, sizeof(serverAddress)) == -1)
 	{
-		printf("connect() failed with error code : %d"
-#if defined _WIN32
-			, WSAGetLastError()
-#else
-			, errno
-#endif
-		);
+		printf("connect() failed with error code : %d", errno);
+		close(sock);
+		return -1;
 	}
 
-	printf("connected to server\n");
+	printf("Connected to server\n");
 
 	char* fileName = "1gb.txt";
-	FILE* file = fopen(fileName, "r");
-	if (file == NULL)
-	{
-		printf("failed to read file: %d", fileName);
-		exit(1);
-	}
+	
 	int algoCount = 0, loopsCount = 0;
 	while (algoCount < NUM_OF_ALGO)
 	{
+		printf("%d: Start sending file %d\n", algoCount + 1, loopsCount + 1);
+		FILE* file = fopen(fileName, "r");
+		if (file == NULL)
+		{
+			printf("Failed to read file: %s", fileName);
+			close(sock);
+			return -1;
+		}
+
 		sendFileThrueTCP(file, sock);
+
 		loopsCount++;
 		if (loopsCount == 5)
 		{
@@ -146,15 +134,6 @@ int main()
 		fclose(file);
 	}
 
-
-	// TODO: All open clientSocket descriptors should be kept
-		// in some container and closed as well.
-#if defined _WIN32
-	closesocket(sock);
-	WSACleanup();
-#else
 	close(sock);
-#endif
-
 	return 0;
 }
