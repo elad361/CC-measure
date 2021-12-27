@@ -140,7 +140,7 @@ int main()
 		stop_ms = (stop.tv_sec * 1000) + (stop.tv_usec / 1000);
 		//printf("stop_ms %f\n", stop_ms);
 		time[algoCount][loopsCount] = stop_ms - start_ms;
-		printf("File num: %d, Bytes received: %d, Time: %.2f ms\n", loopsCount + 1, totalbytes, time[algoCount][loopsCount]);
+		printf("File num: %d, Time: %.2f ms\n", loopsCount + 1, time[algoCount][loopsCount]);
 		loopsCount++;
 		if (loopsCount == 5)
 		{
